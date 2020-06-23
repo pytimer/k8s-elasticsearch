@@ -114,6 +114,5 @@ func main() {
 	}
 
 	klog.Infof("Endpoints = %s", addrs)
-	os.Setenv("cluster.initial_master_nodes", fmt.Sprintf("[%s]", strings.Join(addrs, ", ")))
-	klog.Infof("Elasticsearch cluster.initial_master_nodes = %s", os.Getenv("cluster.initial_master_nodes"))
+	fmt.Printf("cluster.initial_master_nodes: [%s]\n", strings.Join(addrs, ", "))
 }
