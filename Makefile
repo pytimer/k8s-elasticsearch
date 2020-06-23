@@ -2,7 +2,7 @@
 
 PREFIX = pytimer
 IMAGE = elasticsearch
-TAG = v7.7.1-k8s
+TAG = 7.7.1-k8s
 
 build:
 	docker build --tag ${PREFIX}/${IMAGE}:${TAG} .
