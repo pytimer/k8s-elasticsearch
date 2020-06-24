@@ -1,0 +1,181 @@
+# RBAC authn and authz
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: elasticsearch-logging
+  namespace: kube-system
+  labels:
+    k8s-app: elasticsearch-logging
+    addonmanager.kubernetes.io/mode: Reconcile
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: elasticsearch-logging
+  labels:
+    k8s-app: elasticsearch-logging
+    addonmanager.kubernetes.io/mode: Reconcile
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - "services"
+      - "namespaces"
+      - "endpoints"
+    verbs:
+      - "get"
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  namespace: kube-system
+  name: elasticsearch-logging
+  labels:
+    k8s-app: elasticsearch-logging
+    addonmanager.kubernetes.io/mode: Reconcile
+subjects:
+  - kind: ServiceAccount
+    name: elasticsearch-logging
+    namespace: kube-system
+    apiGroup: ""
+roleRef:
+  kind: ClusterRole
+  name: elasticsearch-logging
+  apiGroup: ""
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch-logging
+  namespace: kube-system
+  labels:
+    k8s-app: elasticsearch-logging
+    kubernetes.io/cluster-service: "true"
+    addonmanager.kubernetes.io/mode: Reconcile
+    kubernetes.io/name: "Elasticsearch"
+spec:
+  ports:
+    - port: 9200
+      name: http
+      protocol: TCP
+      targetPort: http
+    - port: 9300
+      name: cluster
+      protocol: TCP
+      targetPort: cluster
+  selector:
+    k8s-app: elasticsearch-logging
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  namespace: kube-system
+  name: elasticsearch-logging
+  labels:
+    k8s-app: elasticsearch-logging
+    version: "v7.7.1"
+    kubernetes.io/cluster-service: "true"
+    addonmanager.kubernetes.io/mode: Reconcile
+spec:
+  selector:
+    matchLabels:
+      k8s-app: elasticsearch-logging
+      version: "v7.7.1"
+  template:
+    metadata:
+      labels:
+        k8s-app: elasticsearch-logging
+        version: "v7.7.1"
+        kubernetes.io/cluster-service: "true"
+    spec:
+      serviceAccountName: elasticsearch-logging
+      initContainers:
+        # Fix the permissions of the data volume.
+        # https://www.elastic.co/guide/en/elasticsearch/reference/current/docker.html#_notes_for_production_use_and_defaults
+        - name: fix-the-volume-permission
+          image: alpine:3.6
+          imagePullPolicy: IfNotPresent
+          command: ['sh', '-c', 'chown -R 1000:1000 /usr/share/elasticsearch/data']
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: elasticsearch-data
+              mountPath: /usr/share/elasticsearch/data
+        # Increase the default vm.max_map_count to 262144
+        # https://www.elastic.co/guide/en/elasticsearch/reference/current/docker.html#docker-cli-run-prod-mode
+        - name: increase-the-vm-max-map-count
+          image: alpine:3.6
+          imagePullPolicy: IfNotPresent
+          command: ['sysctl', '-w', 'vm.max_map_count=262144']
+          securityContext:
+            privileged: true
+        # Increase the ulimit
+        # https://www.elastic.co/guide/en/elasticsearch/reference/current/docker.html#_notes_for_production_use_and_defaults
+        - name: increase-the-ulimit
+          image: alpine:3.6
+          imagePullPolicy: IfNotPresent
+          command: ['sh', '-c', 'ulimit -n 65536']
+          securityContext:
+            privileged: true
+      containers:
+        - name: elasticsearch-logging
+          image: pytimer/elasticsearch:v7.7.1-k8s
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 9200
+              name: http
+            - containerPort: 9300
+              name: cluster
+          livenessProbe:
+            tcpSocket:
+              port: cluster
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          env:
+            - name: cluster.name
+              value: "k8s-cluster"
+            - name: network.host
+              value: "0.0.0.0"
+            - name: http.port
+              value: "9200"
+            - name: transport.tcp.port
+              value: "9300"
+            - name: indices.fielddata.cache.size
+              value: "20%"
+            - name: indices.breaker.fielddata.limit
+              value: "60%"
+            - name: ES_JAVA_OPTS
+              value: "-Xms2g -Xmx2g"
+            - name: discovery.seed_hosts
+              value: "elasticsearch-logging"
+            - name: node.master
+              value: "true"
+            - name: node.ingest
+              value: "true"
+            - name: node.data
+              value: "true"
+            - name: ELASTICSEARCH_MASTER_SERVICE_NAME
+              value: "elasticsearch-logging"
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: node.name
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 4Gi
+            requests:
+              cpu: 100m
+              memory: 1Gi
+          volumeMounts:
+            - mountPath: /usr/share/elasticsearch/data
+              name: elasticsearch-data
+      volumes:
+        - name: elasticsearch-data
+          hostPath:
+            path: "/opt/es/data"
