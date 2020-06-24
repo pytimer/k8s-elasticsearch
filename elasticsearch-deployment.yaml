@@ -68,7 +68,7 @@ spec:
 
 ---
 apiVersion: apps/v1
-kind: DaemonSet
+kind: Deployment
 metadata:
   namespace: kube-system
   name: elasticsearch-logging
@@ -120,7 +120,7 @@ spec:
             privileged: true
       containers:
         - name: elasticsearch-logging
-          image: pytimer/elasticsearch:v7.7.1-k8s
+          image: pytimer/elasticsearch:7.7.1-k8s
           imagePullPolicy: Always
           ports:
             - containerPort: 9200
